@@ -8,24 +8,25 @@ import com.jd.nio.impl.box.StringReceivePacket;
 import com.jd.utils.CloseUtils;
 
 import java.io.IOException;
+import java.nio.channels.WritableByteChannel;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Created by huangshan11 on 2018/12/19.
  */
-public class AsyncReceiveDispatcher implements ReceiveDispatcher {
+public class AsyncReceiveDispatcher implements ReceiveDispatcher,IoArgs.IoArgsProcesser{
 
     private Receiver receiver;
     private AtomicBoolean isClosed = new AtomicBoolean(false);
     private ReceivePacketCallback callback;
     private IoArgs ioArgs = new IoArgs();
     private ReceivePacket packetTemp;
-    private byte[] buffer;
-    private int total;
-    private int position;
+    private WritableByteChannel packetChannel;
+    private long total;
+    private long position;
 
     public AsyncReceiveDispatcher(Receiver receiver, ReceivePacketCallback callback) {
-        receiver.setReceiveEventListener(receiveEventListener);
+        receiver.setReceiveEventListener(this);
         this.receiver = receiver;
         this.callback = callback;
     }
@@ -59,7 +60,7 @@ public class AsyncReceiveDispatcher implements ReceiveDispatcher {
 
     private void registerReceive() {
         try {
-            receiver.receiveAsync(ioArgs);
+            receiver.postReceiveAsync();
         } catch (IOException e) {
             closeAndNotify();
         }
@@ -104,9 +105,32 @@ public class AsyncReceiveDispatcher implements ReceiveDispatcher {
         }
     }
 
-    private void completePacket() {
+    private void completePacket(boolean isSucceed) {
         ReceivePacket packet = packetTemp;
         CloseUtils.close(packet);
         callback.onReceivePacketCompleted(packet);
+    }
+
+    @Override
+    public IoArgs provideIoArgs() {
+        IoArgs args = ioArgs;
+        int size = 0;
+        if (packetTemp == null) {
+            size = 4;
+        } else {
+            size = (int) Math.min(total - position, args.capacity());
+        }
+        args.limit(size);
+        return args;
+    }
+
+    @Override
+    public void onConsumerSuccess(IoArgs args) {
+
+    }
+
+    @Override
+    public void onConsumerFail(IoArgs args, IOException ex) {
+
     }
 }

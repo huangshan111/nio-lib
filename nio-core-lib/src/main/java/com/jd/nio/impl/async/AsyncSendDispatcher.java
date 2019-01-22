@@ -7,6 +7,7 @@ import com.jd.nio.Sender;
 import com.jd.utils.CloseUtils;
 
 import java.io.IOException;
+import java.nio.channels.WritableByteChannel;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -14,7 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * Created by huangshan11 on 2018/12/19.
  */
-public class AsyncSendDispatcher implements SendDispatcher {
+public class AsyncSendDispatcher implements SendDispatcher, IoArgs.IoArgsProcesser {
 
     private final Sender sender;
     private final Queue<SendPacket> queue = new ConcurrentLinkedQueue<>();
@@ -23,11 +24,12 @@ public class AsyncSendDispatcher implements SendDispatcher {
 
     private IoArgs ioArgs = new IoArgs();
     private SendPacket packetTemp;
-    private int total;
-    private int position;
+    private WritableByteChannel packetChannel;
+    private long total;
+    private long position;
 
     public AsyncSendDispatcher(Sender sender) {
-        sender.setSendEventListener(sendEventListener);
+        sender.setSendEventListener(this);
         this.sender = sender;
     }
 
@@ -97,18 +99,6 @@ public class AsyncSendDispatcher implements SendDispatcher {
         CloseUtils.close(this);
     }
 
-    private final IoArgs.IoArgsEventListener sendEventListener = new IoArgs.IoArgsEventListener() {
-        @Override
-        public void onStarted(IoArgs args) {
-
-        }
-
-        @Override
-        public void onCompleted(IoArgs args) {
-            sendCurrentPacket();
-        }
-    };
-
     @Override
     public void close() throws IOException {
         if (isClosed.compareAndSet(false, true)) {
@@ -119,5 +109,32 @@ public class AsyncSendDispatcher implements SendDispatcher {
                 packetTemp = null;
             }
         }
+    }
+
+    @Override
+    public IoArgs provideIoArgs() {
+        IoArgs args = ioArgs;
+        args.startWriting();
+        if (position >= total) {
+            sendNextPacket();
+            return;
+        } else if (position == 0) {
+            args.writeLength(total);
+        }
+
+        byte[] bytes = packetTemp.bytes();
+        int count = args.readFrom(bytes, position);
+        position += count;
+        return null;
+    }
+
+    @Override
+    public void onConsumerSuccess(IoArgs args) {
+
+    }
+
+    @Override
+    public void onConsumerFail(IoArgs args, IOException ex) {
+        ex.printStackTrace();
     }
 }
