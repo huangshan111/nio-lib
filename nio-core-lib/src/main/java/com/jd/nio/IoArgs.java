@@ -12,10 +12,14 @@ import java.nio.channels.WritableByteChannel;
  */
 public class IoArgs {
 
-    private ByteBuffer byteBuffer = ByteBuffer.allocate(8);
-    private int limit = 8;
+    private ByteBuffer byteBuffer = ByteBuffer.allocate(5);
+    private int limit = 5;
 
-    //limit - position
+    /**
+     * 把文件的数据发送给对方，需要先将文件转换为一个ReadableByteChannel，可读的Channel
+     * 然后从这个Channel读取数据到byteBuffer里面，也就是写入到byteBuffer，
+     * 所以这个操作本质是写byteBuffer write to byteBuffer
+     */
     public int readFrom(ReadableByteChannel channel) throws IOException {
         startWriting();
         int byteProduced = 0;
@@ -30,6 +34,11 @@ public class IoArgs {
         return byteProduced;
     }
 
+    /**
+     * 从对方接收数据，所以现在byteBuffer里有数据，你要把byteBuffer的数据写入到一个Channel
+     * 这个Channel是一个可写的WritableByteChannel，WritableByteChannel
+     * 本质最终可以理解为一个FileOutputStream，最终写到了文件
+     */
     public int writeTo(WritableByteChannel channel) throws IOException {
         int byteProduced = 0;
         while (byteBuffer.hasRemaining()) {
@@ -78,7 +87,9 @@ public class IoArgs {
     }
 
     public void writeLength(int len) {
+        startWriting();
         byteBuffer.putInt(len);
+        finishWriting();
     }
 
     public int readLength() {
@@ -93,12 +104,12 @@ public class IoArgs {
         return byteBuffer.capacity();
     }
 
-    public interface IoArgsProcesser {
+    public interface IoArgsEventProcesser {
 
         IoArgs provideIoArgs();
 
-        void onConsumerSuccess(IoArgs args);
+        void onConsumeCompleted(IoArgs args);
 
-        void onConsumerFail(IoArgs args, IOException ex);
+        void onConsumeFailed(IoArgs args, IOException ex);
     }
 }

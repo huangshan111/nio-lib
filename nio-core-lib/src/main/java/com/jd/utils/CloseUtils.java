@@ -9,6 +9,8 @@ public class CloseUtils {
             return;
         }
         for (Closeable closeable : closeables) {
+            if (closeable == null)
+                return;
             try {
                 closeable.close();
             } catch (IOException e) {

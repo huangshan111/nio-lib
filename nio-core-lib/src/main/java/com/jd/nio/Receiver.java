@@ -10,5 +10,5 @@ public interface Receiver extends Closeable {
 
     boolean postReceiveAsync() throws IOException;
 
-    void setReceiveEventListener(IoArgs.IoArgsProcesser processer);
+    void setReceiveEventListener(IoArgs.IoArgsEventProcesser processer);
 }

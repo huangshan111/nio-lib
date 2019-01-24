@@ -17,8 +17,8 @@ public class SocketChannelAdapter implements Sender, Receiver, Closeable {
     private IoProvider ioProvider;
     private OnChannelStatusChangedListener listener;
 
-    IoArgs.IoArgsProcesser sendProcesser;
-    IoArgs.IoArgsProcesser receiveProcesser;
+    IoArgs.IoArgsEventProcesser sendProcesser;
+    IoArgs.IoArgsEventProcesser receiveProcesser;
 
     public SocketChannelAdapter(SocketChannel channel, IoSelectorProvider ioProvider, OnChannelStatusChangedListener listener) throws IOException {
         this.channel = channel;
@@ -53,12 +53,12 @@ public class SocketChannelAdapter implements Sender, Receiver, Closeable {
     }
 
     @Override
-    public void setReceiveEventListener(IoArgs.IoArgsProcesser processer) {
-        receiveProcesser = processer;
+    public void setReceiveEventListener(IoArgs.IoArgsEventProcesser processer) {
+        this.receiveProcesser = processer;
     }
 
     @Override
-    public void setSendEventListener(IoArgs.IoArgsProcesser processer) {
+    public void setSendEventListener(IoArgs.IoArgsEventProcesser processer) {
         this.sendProcesser = processer;
     }
 
@@ -70,15 +70,15 @@ public class SocketChannelAdapter implements Sender, Receiver, Closeable {
                 return;
             }
 
-            IoArgs.IoArgsProcesser processer = SocketChannelAdapter.this.receiveProcesser;
-            IoArgs ioArgs = processer.provideIoArgs();
+            IoArgs.IoArgsEventProcesser processer = SocketChannelAdapter.this.receiveProcesser;
+            IoArgs args = processer.provideIoArgs();
             try {
                 // 具体的读取操作
-                if (ioArgs.readFrom(channel) > 0) {
+                if (args.readFrom(channel) > 0) {
                     // 读取完成回调
-                    processer.onConsumerSuccess(ioArgs);
+                    processer.onConsumeCompleted(args);
                 } else {
-                    processer.onConsumerFail(ioArgs, new IOException("不能读取数据了"));
+                    processer.onConsumeFailed(args, new IOException("不能读取数据了"));
                 }
             } catch (IOException ignored) {
                 CloseUtils.close(SocketChannelAdapter.this);
@@ -92,13 +92,13 @@ public class SocketChannelAdapter implements Sender, Receiver, Closeable {
             if (isClosed.get()) {
                 return;
             }
-            IoArgs.IoArgsProcesser processer = SocketChannelAdapter.this.sendProcesser;
-            IoArgs ioArgs = processer.provideIoArgs();
+            IoArgs.IoArgsEventProcesser processer = SocketChannelAdapter.this.sendProcesser;
+            IoArgs args = processer.provideIoArgs();
             try {
-                if (ioArgs.writeTo(channel) > 0) {
-                    processer.onConsumerSuccess(ioArgs);
+                if (args.writeTo(channel) > 0) {
+                    processer.onConsumeCompleted(args);
                 } else {
-                    processer.onConsumerFail(ioArgs, new IOException("不能写数据了"));
+                    processer.onConsumeFailed(args, new IOException("不能写数据了"));
                 }
             } catch (IOException ignored) {
                 CloseUtils.close(SocketChannelAdapter.this);

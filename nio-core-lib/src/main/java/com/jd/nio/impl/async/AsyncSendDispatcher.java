@@ -7,7 +7,8 @@ import com.jd.nio.Sender;
 import com.jd.utils.CloseUtils;
 
 import java.io.IOException;
-import java.nio.channels.WritableByteChannel;
+import java.nio.channels.Channels;
+import java.nio.channels.ReadableByteChannel;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -15,7 +16,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * Created by huangshan11 on 2018/12/19.
  */
-public class AsyncSendDispatcher implements SendDispatcher, IoArgs.IoArgsProcesser {
+public class AsyncSendDispatcher implements SendDispatcher, IoArgs.IoArgsEventProcesser {
 
     private final Sender sender;
     private final Queue<SendPacket> queue = new ConcurrentLinkedQueue<>();
@@ -23,8 +24,8 @@ public class AsyncSendDispatcher implements SendDispatcher, IoArgs.IoArgsProcess
     private AtomicBoolean isClosed = new AtomicBoolean(false);
 
     private IoArgs ioArgs = new IoArgs();
-    private SendPacket packetTemp;
-    private WritableByteChannel packetChannel;
+    private SendPacket<?> packetTemp;
+    private ReadableByteChannel packetChannel;
     private long total;
     private long position;
 
@@ -72,27 +73,16 @@ public class AsyncSendDispatcher implements SendDispatcher, IoArgs.IoArgsProcess
     }
 
     private void sendCurrentPacket() {
-        IoArgs args = ioArgs;
-        args.startWriting();
         if (position >= total) {
+            complete(position == total);
             sendNextPacket();
             return;
-        } else if (position == 0) {
-            args.writeLength(total);
         }
-
-        byte[] bytes = packetTemp.bytes();
-        int count = args.readFrom(bytes, position);
-        position += count;
-
-        args.finishWriting();
-
         try {
-            sender.sendAsync(args);
+            sender.postSendAsync();
         } catch (IOException e) {
-            closeAndNotify();
+            e.printStackTrace();
         }
-
     }
 
     private void closeAndNotify() {
@@ -103,38 +93,53 @@ public class AsyncSendDispatcher implements SendDispatcher, IoArgs.IoArgsProcess
     public void close() throws IOException {
         if (isClosed.compareAndSet(false, true)) {
             isSending.set(false);
-            SendPacket packet = packetTemp;
-            if (packet != null) {
-                CloseUtils.close(packet);
-                packetTemp = null;
-            }
+            complete(false);
         }
+    }
+
+    private void complete(boolean isSuccess) {
+        SendPacket packet = packetTemp;
+        if (packet != null) {
+            CloseUtils.close(packet);
+            packetTemp = null;
+        }
+
+        if (packetChannel != null) {
+            CloseUtils.close(packetChannel);
+            packetChannel = null;
+        }
+
+        position = 0;
+        total = 0;
     }
 
     @Override
     public IoArgs provideIoArgs() {
         IoArgs args = ioArgs;
-        args.startWriting();
-        if (position >= total) {
-            sendNextPacket();
-            return;
-        } else if (position == 0) {
-            args.writeLength(total);
+        if (packetChannel == null) {
+            packetChannel = Channels.newChannel(packetTemp.open());
+            args.limit(4);
+            args.writeLength((int) packetTemp.length());
+        } else {
+            int limit = (int) Math.min(args.capacity(), total - position);
+            args.limit(limit);
+            try {
+                int count = args.readFrom(packetChannel);
+                position += count;
+            } catch (IOException e) {
+                return null;
+            }
         }
-
-        byte[] bytes = packetTemp.bytes();
-        int count = args.readFrom(bytes, position);
-        position += count;
-        return null;
+        return args;
     }
 
     @Override
-    public void onConsumerSuccess(IoArgs args) {
-
+    public void onConsumeCompleted(IoArgs args) {
+        sendCurrentPacket();
     }
 
     @Override
-    public void onConsumerFail(IoArgs args, IOException ex) {
+    public void onConsumeFailed(IoArgs args, IOException ex) {
         ex.printStackTrace();
     }
 }
